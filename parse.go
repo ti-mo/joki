@@ -8,11 +8,27 @@ import (
 
 type target struct {
   name, longname, address, links string
+}
+
+type probe struct {
+  name string
   tos int
+}
+
+type probeset struct {
+  name string
+  probes map[string]*probe
+  targets map[string]*target
 }
 
 func (t *target) ping() {
   fmt.Printf("pinging %s as %s with mark 0x%x\n", t.name, t.address, t.tos)
+}
+
+func GetLinks(config *toml.TomlTree) {
+  if config.Has("links") {
+
+  }
 }
 
 func GetTargets(config *toml.TomlTree) {
@@ -41,7 +57,7 @@ func GetTargets(config *toml.TomlTree) {
       log.Fatal("No targets found in config.toml")
   }
 
-  
+
 
   // Perform sanity check on all targets
   // name and address need to be set, tos is optional (pass 0 to fping)

@@ -7,7 +7,7 @@ measurement = "ping"
 user = "timo"
 pass = "timo"
 
-[links]
+[probes]
 isp1 = { prio1 = "0x1", prio2 = "0x2", browse = "0x3", dl = "0x4", crew = "0x5", trash = "0x6" }
 isp2 = { prio1 = "0x7", prio2 = "0x8", browse = "0x9", dl = "0xa", crew = "0xb", trash = "0xc" }
 
