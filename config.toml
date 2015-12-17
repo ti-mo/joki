@@ -1,5 +1,7 @@
-[influxdb]
+[goping]
+debug = true
 
+[influxdb]
 host = "10.1.1.151"
 port = "8086"
 db = "ping"
@@ -7,23 +9,35 @@ measurement = "ping"
 user = "timo"
 pass = "timo"
 
-[probes]
-isp1 = { prio1 = "0x1", prio2 = "0x2", browse = "0x3", dl = "0x4", crew = "0x5", trash = "0x6" }
-isp2 = { prio1 = "0x7", prio2 = "0x8", browse = "0x9", dl = "0xa", crew = "0xb", trash = "0xc" }
+[probes.isp1]
+prio1 = "0x1"
+prio2 = "0x2"
+browse = "0x3"
+dl = "0x4"
+crew = "0x5"
+trash = "0x6"
 
-[[target]]
+[probes.isp2]
+prio1 = "0x7"
+prio2 = "0x8"
+browse = "0x9"
+dl = "0xa"
+crew = "0xb"
+trash = "0xc"
+
+[[targets]]
 name = "modem"
 longname = "Telenet Modem"
 address = "192.168.0.1"
-links = "isp1"
+links = [ "isp1", "test" ]
 
-[[target]]
+[[targets]]
 name = "google1"
 longname = "Google DNS"
 address = "8.8.8.8"
-links = "all"
+links = [ "all" ]
 
-[[target]]
+[[targets]]
 name = "google2"
 longname = "Google DNS 2"
 address = "8.8.4.4"

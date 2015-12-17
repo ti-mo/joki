@@ -1,8 +1,8 @@
 package main
 
 import (
-  "github.com/pelletier/go-toml"
   "fmt"
+  "github.com/pelletier/go-toml"
   "log"
 )
 
@@ -12,54 +12,74 @@ type target struct {
 
 type probe struct {
   name string
-  tos int
+  tos  int
 }
 
-type probeset struct {
-  name string
-  probes map[string]*probe
+type probemap struct {
+  name    string
+  probes  map[string]*probe
   targets map[string]*target
 }
 
-func (t *target) ping() {
-  fmt.Printf("pinging %s as %s with mark 0x%x\n", t.name, t.address, t.tos)
+func (t *target) ping(p *probe) {
+  fmt.Printf("pinging %s as %s with mark 0x%x\n", t.name, t.address, p.tos)
 }
 
-func GetLinks(config *toml.TomlTree) {
-  if config.Has("links") {
+func LoadProbes(config *toml.TomlTree, probemap *probemap) {
 
+}
+
+// Given a Toml (sub)tree, append all targets with
+func LoadTargets(config *toml.TomlTree, probemap *probemap) {
+
+}
+
+// Extract probemap data from configuration file
+func ReadConfig(config *toml.TomlTree, probemaps *map[string]probemap) {
+  // Config sanity check
+  if !config.Has("influxdb") {
+    log.Fatal("Please configure influxdb in config.toml")
   }
-}
+  if !config.Has("targets") {
+    log.Fatal("Please define targets in config.toml")
+  }
+  if !config.Has("probes") {
+    log.Fatal("Please configure probes in config.toml")
+  }
 
-func GetTargets(config *toml.TomlTree) {
-  // Check if we have at least one target
-  if config.Has("target") {
-    targets, _ := config.Get("target").([]*toml.TomlTree)
-    fmt.Printf("%d targets found in configuration.\n", len(targets))
+  // Get objects from configuration
+  tomltargets, _ := config.Get("targets").([]*toml.TomlTree)
+  tomlprobes, _ := config.Get("probes").([]*toml.TomlTree)
 
-    // Target Map
-    tgtmap := make(map[string]target)
-
-    // Check and append
-    for _, v := range targets {
-      tstruct := target{
-        name: v.Get("name").(string),
-        longname: v.Get("longname").(string),
-        address: v.Get("address").(string),
-        //links: v.Get("links").(string),
-      }
-
-      tgtmap[tstruct.name] = tstruct
-    }
-
-    fmt.Printf("%v", tgtmap)
+  if len(tomltargets) == 0 {
+    log.Fatal("No targets found, exiting..")
   } else {
-      log.Fatal("No targets found in config.toml")
+    fmt.Printf("%d targets found in configuration:\n", len(tomltargets))
   }
 
+  // Build map of probes by 'name'
+  for _, v := range tomlprobes {
+    pmap := probemap{
+      name: v.Get("name").(string),
+    }
+    (*probemaps)[pmap.name] = pmap
+  }
 
+  // Build map of targets by 'name'
+  targets := make(map[string]target)
 
-  // Perform sanity check on all targets
+  for _, v := range tomltargets {
+    tstruct := target{
+      name:     v.Get("name").(string),
+      longname: v.Get("longname").(string),
+      address:  v.Get("address").(string),
+      links:    v.Get("links").([]string),
+    }
+    targets[tstruct.name] = tstruct
+  }
+
+  fmt.Printf("%v\n", targets)
+
   // name and address need to be set, tos is optional (pass 0 to fping)
 
   // Build map of targets
@@ -72,6 +92,9 @@ func main() {
 
   config, _ := toml.LoadFile("config.toml")
 
-  GetTargets(config)
+  probemaps := make(map[string]probemap)
+
+  // Get probemaps from configuration
+  ReadConfig(config, &probemaps)
 
 }
