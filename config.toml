@@ -25,19 +25,16 @@ dl = "0xa"
 crew = "0xb"
 trash = "0xc"
 
-[[targets]]
-name = "modem"
-longname = "Telenet Modem"
+[targets.modem]
+name = "Telenet Modem"
 address = "192.168.0.1"
 links = [ "isp1", "test" ]
 
-[[targets]]
-name = "google1"
-longname = "Google DNS"
+[targets.google1]
+name = "Google DNS"
 address = "8.8.8.8"
 links = [ "all" ]
 
-[[targets]]
-name = "google2"
-longname = "Google DNS 2"
+[targets.google2]
+name = "Google DNS 2"
 address = "8.8.4.4"
