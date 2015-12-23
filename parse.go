@@ -2,99 +2,89 @@ package main
 
 import (
   "fmt"
-  "github.com/pelletier/go-toml"
+  "github.com/spf13/viper"
   "log"
+  "os"
 )
 
 type target struct {
-  name, longname, address, links string
+  name, longname, address string
+  links                   []string
 }
 
 type probe struct {
   name string
-  tos  int
+  tos  string
 }
 
 type probemap struct {
-  name    string
-  probes  map[string]*probe
-  targets map[string]*target
+  name   string
+  probes map[string]probe
 }
 
 func (t *target) ping(p *probe) {
   fmt.Printf("pinging %s as %s with mark 0x%x\n", t.name, t.address, p.tos)
 }
 
-func LoadProbes(config *toml.TomlTree, probemap *probemap) {
-
-}
-
-// Given a Toml (sub)tree, append all targets with
-func LoadTargets(config *toml.TomlTree, probemap *probemap) {
-
-}
-
 // Extract probemap data from configuration file
-func ReadConfig(config *toml.TomlTree, probemaps *map[string]probemap) {
+func ReadConfig(targets *map[string]target, probesets *map[string]probemap) {
   // Config sanity check
-  if !config.Has("influxdb") {
+  if !viper.InConfig("influxdb") {
     log.Fatal("Please configure influxdb in config.toml")
   }
-  if !config.Has("targets") {
-    log.Fatal("Please define targets in config.toml")
-  }
-  if !config.Has("probes") {
+  if !viper.InConfig("probes") {
     log.Fatal("Please configure probes in config.toml")
   }
-
-  // Get objects from configuration
-  tomltargets, _ := config.Get("targets").([]*toml.TomlTree)
-  tomlprobes, _ := config.Get("probes").([]*toml.TomlTree)
-
-  if len(tomltargets) == 0 {
-    log.Fatal("No targets found, exiting..")
-  } else {
-    fmt.Printf("%d targets found in configuration:\n", len(tomltargets))
+  if !viper.InConfig("targets") {
+    log.Fatal("Please define targets in config.toml")
   }
 
-  // Build map of probes by 'name'
-  for _, v := range tomlprobes {
-    pmap := probemap{
-      name: v.Get("name").(string),
+  // Load probes
+  vprobesets := viper.GetStringMap("probes")
+  fmt.Printf("%v\n", vprobesets)
+
+  for vpmname, vprobes := range vprobesets {
+
+    fmt.Println("Adding", vpmname, "to probesets")
+    fmt.Printf("vprobes: %v\n", vprobes)
+
+    // Add probemap to probesets and initialize empty probes stringmap
+    (*probesets)[vpmname] = probemap{name: vpmname, probes: map[string]probe{}}
+
+    // Declare probes inside the current probemap
+    for probename, tosvalue := range vprobes.(map[string]interface{}) {
+      fmt.Printf("probename: %v, tosvalue: %v\n", probename, tosvalue)
+      (*probesets)[vpmname].probes[probename] = probe{name: probename, tos: tosvalue.(string)}
     }
-    (*probemaps)[pmap.name] = pmap
   }
 
-  // Build map of targets by 'name'
-  targets := make(map[string]target)
-
-  for _, v := range tomltargets {
-    tstruct := target{
-      name:     v.Get("name").(string),
-      longname: v.Get("longname").(string),
-      address:  v.Get("address").(string),
-      links:    v.Get("links").([]string),
-    }
-    targets[tstruct.name] = tstruct
-  }
-
-  fmt.Printf("%v\n", targets)
-
-  // name and address need to be set, tos is optional (pass 0 to fping)
-
-  // Build map of targets
-
-  // Return targets
-
+  // Load targets
 }
 
 func main() {
 
-  config, _ := toml.LoadFile("config.toml")
+  // Declare Data Structures
+  targets := make(map[string]target)
+  probesets := make(map[string]probemap)
 
-  probemaps := make(map[string]probemap)
+  // Get working directory
+  pwd, err := os.Getwd()
+  if err != nil {
+    log.Fatal(err)
+  }
 
-  // Get probemaps from configuration
-  ReadConfig(config, &probemaps)
+  // Viper metaconfiguration
+  viper.SetConfigName("config")
+  viper.AddConfigPath(pwd)
+  err = viper.ReadInConfig()
 
+  // Config error handling
+  // TODO: extend this with more targeted info, like config search path etc.
+  if err != nil {
+    log.Fatal("Error loading configuration - exiting.")
+  } else {
+    fmt.Println("GoPing configuration successfully loaded.")
+  }
+
+  ReadConfig(&targets, &probesets)
 }
