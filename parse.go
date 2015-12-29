@@ -40,25 +40,59 @@ func ReadConfig(targets *map[string]target, probesets *map[string]probemap) {
   }
 
   // Load probes
-  vprobesets := viper.GetStringMap("probes")
-  fmt.Printf("%v\n", vprobesets)
+  vProbeSets := viper.GetStringMap("probes")
+  fmt.Printf("\nProbesets: %v\n", vProbeSets)
 
-  for vpmname, vprobes := range vprobesets {
+  for vProbeMap, vProbes := range vProbeSets {
 
-    fmt.Println("Adding", vpmname, "to probesets")
-    fmt.Printf("vprobes: %v\n", vprobes)
+    fmt.Println("Adding", vProbeMap, "to probesets")
+    fmt.Printf("vProbes: %v\n", vProbes)
 
     // Add probemap to probesets and initialize empty probes stringmap
-    (*probesets)[vpmname] = probemap{name: vpmname, probes: map[string]probe{}}
+    (*probesets)[vProbeMap] = probemap{name: vProbeMap, probes: map[string]probe{}}
 
     // Declare probes inside the current probemap
-    for probename, tosvalue := range vprobes.(map[string]interface{}) {
+    for probename, tosvalue := range vProbes.(map[string]interface{}) {
       fmt.Printf("probename: %v, tosvalue: %v\n", probename, tosvalue)
-      (*probesets)[vpmname].probes[probename] = probe{name: probename, tos: tosvalue.(string)}
+      (*probesets)[vProbeMap].probes[probename] = probe{name: probename, tos: tosvalue.(string)}
     }
   }
 
   // Load targets
+  vTargets := viper.GetStringMap("targets")
+  fmt.Printf("\nTargets: %v\n", vTargets)
+
+  // Get Viper Target objects and parse them into structs
+  for vTname, vtarget := range vTargets {
+    avTarget, ok := vtarget.(map[string]interface{})
+    if !ok {
+      log.Fatal("Error while parsing configuration for target", vTname)
+    }
+
+    tLongName, ok := avTarget["name"].(string)
+    if !ok {
+      log.Fatal("Error parsing ", vTname, "'s target name")
+    }
+
+    tAddress, ok := avTarget["address"].(string)
+    if !ok {
+      log.Fatal("Error parsing address for target ", vTname)
+    }
+
+    // Use Viper functions to get the 'links' slice.
+    tLinks := viper.GetStringSlice("targets." + vTname + ".links")
+
+    fmt.Println("Adding", vTname, "to targets (", avTarget, ")")
+    (*targets)[vTname] = target{name: vTname, longname: tLongName, address: tAddress, links: tLinks}
+
+    // Target Object Dump
+    if viper.GetBool("goping.debug") {
+      fmt.Printf("Object dump for target %s\n\tLong Name: %s\n\tAddress: %s\n\tLinks: %v\n",
+        vTname, (*targets)[vTname].longname, (*targets)[vTname].address, (*targets)[vTname].links)
+    }
+  }
+
+  // TODO: Assign Targets to their defined ProbeMaps
 }
 
 func main() {
@@ -77,6 +111,9 @@ func main() {
   viper.SetConfigName("config")
   viper.AddConfigPath(pwd)
   err = viper.ReadInConfig()
+
+  // Set Configuration Defaults
+  viper.SetDefault("goping.debug", true)
 
   // Config error handling
   // TODO: extend this with more targeted info, like config search path etc.
