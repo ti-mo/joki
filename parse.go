@@ -9,7 +9,6 @@ import (
 
 type target struct {
   name, longname, address string
-  links                   []string
 }
 
 type probe struct {
@@ -18,16 +17,25 @@ type probe struct {
 }
 
 type probemap struct {
-  name   string
-  probes map[string]probe
+  name    string
+  probes  map[string]probe
+  targets map[string]target
 }
 
 func (t *target) ping(p *probe) {
   fmt.Printf("pinging %s as %s with mark 0x%x\n", t.name, t.address, p.tos)
 }
 
+func DumpTargets(targets *map[string]target) {
+  for vTname, vTarget := range *targets {
+    fmt.Printf("\n[target] %s\n\tLong Name: %s\n\tAddress: %s\n",
+      vTname, vTarget.longname, vTarget.address)
+  }
+}
+
 // Extract probemap data from configuration file
-func ReadConfig(targets *map[string]target, probesets *map[string]probemap) {
+func ReadConfig(probesets *map[string]probemap) {
+
   // Config sanity check
   if !viper.InConfig("influxdb") {
     log.Fatal("Please configure influxdb in config.toml")
@@ -46,10 +54,9 @@ func ReadConfig(targets *map[string]target, probesets *map[string]probemap) {
   for vProbeMap, vProbes := range vProbeSets {
 
     fmt.Println("Adding", vProbeMap, "to probesets")
-    fmt.Printf("vProbes: %v\n", vProbes)
 
     // Add probemap to probesets and initialize empty probes stringmap
-    (*probesets)[vProbeMap] = probemap{name: vProbeMap, probes: map[string]probe{}}
+    (*probesets)[vProbeMap] = probemap{name: vProbeMap, probes: map[string]probe{}, targets: map[string]target{}}
 
     // Declare probes inside the current probemap
     for probename, tosvalue := range vProbes.(map[string]interface{}) {
@@ -60,11 +67,11 @@ func ReadConfig(targets *map[string]target, probesets *map[string]probemap) {
 
   // Load targets
   vTargets := viper.GetStringMap("targets")
-  fmt.Printf("\nTargets: %v\n", vTargets)
 
   // Get Viper Target objects and parse them into structs
-  for vTname, vtarget := range vTargets {
-    avTarget, ok := vtarget.(map[string]interface{})
+  for vTname, vTarget := range vTargets {
+
+    avTarget, ok := vTarget.(map[string]interface{})
     if !ok {
       log.Fatal("Error while parsing configuration for target", vTname)
     }
@@ -82,23 +89,30 @@ func ReadConfig(targets *map[string]target, probesets *map[string]probemap) {
     // Use Viper functions to get the 'links' slice.
     tLinks := viper.GetStringSlice("targets." + vTname + ".links")
 
-    fmt.Println("Adding", vTname, "to targets (", avTarget, ")")
-    (*targets)[vTname] = target{name: vTname, longname: tLongName, address: tAddress, links: tLinks}
-
-    // Target Object Dump
-    if viper.GetBool("goping.debug") {
-      fmt.Printf("Object dump for target %s\n\tLong Name: %s\n\tAddress: %s\n\tLinks: %v\n",
-        vTname, (*targets)[vTname].longname, (*targets)[vTname].address, (*targets)[vTname].links)
+    // Assign this to all probeMaps
+    if len(tLinks) == 0 || tLinks[0] == "all" {
+      for pSet, pMap := range *probesets {
+        fmt.Println("Adding probe ", vTname, "to probeset", pSet, "[all]")
+        pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
+      }
+    } else {
+      // Assign Targets to their defined ProbeMaps
+      for _, tProbe := range tLinks {
+        // Look up tProbe in probesets
+        if pMap, ok := (*probesets)[tProbe]; ok {
+          fmt.Println("Adding probe ", vTname, "to probeset", tProbe)
+          pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
+        } else {
+          log.Printf("Missing probe %s defined in %s, ignoring.", tProbe, vTname)
+        }
+      }
     }
   }
-
-  // TODO: Assign Targets to their defined ProbeMaps
 }
 
 func main() {
 
   // Declare Data Structures
-  targets := make(map[string]target)
   probesets := make(map[string]probemap)
 
   // Get working directory
@@ -123,5 +137,13 @@ func main() {
     fmt.Println("GoPing configuration successfully loaded.")
   }
 
-  ReadConfig(&targets, &probesets)
+  ReadConfig(&probesets)
+
+  // Target Object Dump
+  if viper.GetBool("goping.debug") {
+    for _, probemap := range probesets {
+      DumpTargets(&probemap.targets)
+
+    }
+  }
 }
