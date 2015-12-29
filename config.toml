@@ -28,12 +28,12 @@ trash = "0xc"
 [targets.modem]
 name = "Telenet Modem"
 address = "192.168.0.1"
-links = [ "isp1", "test" ]
+links = [ "isp1", "isp2", "isp5" ]
 
 [targets.google1]
 name = "Google DNS"
 address = "8.8.8.8"
-links = [ "all" ]
+links = "all"
 
 [targets.google2]
 name = "Google DNS 2"
