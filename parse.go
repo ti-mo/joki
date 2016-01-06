@@ -5,6 +5,8 @@ import (
   "github.com/spf13/viper"
   "log"
   "os"
+  "os/exec"
+  "strings"
 )
 
 type target struct {
@@ -20,6 +22,34 @@ type probemap struct {
   name    string
   probes  map[string]probe
   targets map[string]target
+}
+
+// Get a Stringmap of strings for reverse lookups, eg.:
+// target["8.8.8.8"] returns the internal name of the target
+// This is useful to translate back to a name when parsing output
+// for logging purposes after the argument has been handed off to FPing
+func (probeMap probemap) TargetStringMapRev() map[string]string {
+
+  targetMap := make(map[string]string)
+
+  for targetName, targetValue := range probeMap.targets {
+    targetMap[targetValue.address] = targetName
+  }
+
+  return targetMap
+}
+
+// Returns a slice of strings containing all targets
+// Used for generating arguments for the ping worker
+func (probeMap probemap) TargetSlice() []string {
+
+  targets := make([]string, 0, len(probeMap.targets))
+
+  for _, probeTarget := range probeMap.targets {
+    targets = append(targets, probeTarget.address)
+  }
+
+  return targets
 }
 
 func (t *target) ping(p *probe) {
@@ -92,7 +122,7 @@ func ReadConfig(probesets *map[string]probemap) {
     // Assign this to all probeMaps
     if len(tLinks) == 0 || tLinks[0] == "all" {
       for pSet, pMap := range *probesets {
-        fmt.Println("Adding probe ", vTname, "to probeset", pSet, "[all]")
+        fmt.Println("Adding probe", vTname, "to probeset", pSet, "[all]")
         pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
       }
     } else {
@@ -100,7 +130,7 @@ func ReadConfig(probesets *map[string]probemap) {
       for _, tProbe := range tLinks {
         // Look up tProbe in probesets
         if pMap, ok := (*probesets)[tProbe]; ok {
-          fmt.Println("Adding probe ", vTname, "to probeset", tProbe)
+          fmt.Println("Adding probe", vTname, "to probeset", tProbe)
           pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
         } else {
           log.Printf("Missing probe %s defined in %s, ignoring.", tProbe, vTname)
@@ -110,7 +140,18 @@ func ReadConfig(probesets *map[string]probemap) {
   }
 }
 
+func PingWorker(name string, tos string, targets []string, revtargets map[string]string) {
+  //fpargs := []string{"-B 1", "-D", "-r0", "-O 0", "-Q 1", "-p 1000", "-l"}
+
+  fmt.Printf("%s, %s: %s\n", name, tos, strings.Join(targets, " "))
+  fmt.Printf("%v\n", revtargets)
+}
+
 func main() {
+
+  if _, err := exec.LookPath("fping"); err != nil {
+    log.Fatal("FPing binary not found. Exiting.")
+  }
 
   // Declare Data Structures
   probesets := make(map[string]probemap)
@@ -137,13 +178,23 @@ func main() {
     fmt.Println("GoPing configuration successfully loaded.")
   }
 
+  // Read configuration into probesets
   ReadConfig(&probesets)
 
   // Target Object Dump
   if viper.GetBool("goping.debug") {
     for _, probemap := range probesets {
       DumpTargets(&probemap.targets)
+    }
+  }
 
+  // Start FPing Tasks
+  for _, probeMap := range probesets {
+
+    // Start a goroutine for every probe
+    for _, probeValue := range probeMap.probes {
+
+      PingWorker(probeValue.name, probeValue.tos, probeMap.TargetSlice(), probeMap.TargetStringMapRev())
     }
   }
 }
