@@ -131,8 +131,8 @@ func PingParser(text string) pingresult {
   return result
 }
 
-func DumpTargets(targets *map[string]target) {
-  for vTname, vTarget := range *targets {
+func DumpTargets(targets map[string]target) {
+  for vTname, vTarget := range targets {
     fmt.Printf("\n[target] %s\n\tLong Name: %s\n\tAddress: %s\n",
       vTname, vTarget.longname, vTarget.address)
   }
@@ -223,7 +223,6 @@ func PingWorker(dchan chan<- string, probeMap probemap, probeValue probe) {
   fpparams := []string{"-B 1", "-D", "-r0", "-O 0", "-Q 1", "-p 1000", "-l", "-e"}
 
   fmt.Printf("Starting worker %s, %s: %s\n", probeValue.name, probeValue.tos, strings.Join(probeMap.TargetSlice(), " "))
-  fmt.Printf("%v\n", probeMap.TargetStringMapRev())
 
   fpargs := append(fpparams, probeMap.TargetSlice()...)
 
@@ -260,6 +259,19 @@ func PingWorker(dchan chan<- string, probeMap probemap, probeValue probe) {
   }
 }
 
+// Run a PingWorker for every probe in every probemap
+func RunWorkers(probesets map[string]probemap, dchan chan<- string) {
+  // Start a PingWorker (FPing instance) for every probe
+  for _, probeMap := range probesets {
+    if viper.GetBool("goping.debug") {
+      DumpTargets(probeMap.targets)
+    }
+    for _, probeValue := range probeMap.probes {
+      go PingWorker(dchan, probeMap, probeValue)
+    }
+  }
+}
+
 func main() {
 
   probesets := make(map[string]probemap)
@@ -282,7 +294,6 @@ func main() {
   // Set Configuration Defaults
   viper.SetDefault("goping.debug", true)
 
-  // Config error handling
   // TODO: extend this with more targeted info, like config search path etc.
   if err != nil {
     log.Fatal("Error loading configuration - exiting.")
@@ -290,26 +301,10 @@ func main() {
     fmt.Println("GoPing configuration successfully loaded.")
   }
 
-  // Read configuration into probesets
   ReadConfig(&probesets)
 
-  // Target Object Dump
-  if viper.GetBool("goping.debug") {
-    for _, probemap := range probesets {
-      DumpTargets(&probemap.targets)
-    }
-  }
+  RunWorkers(probesets, dchan)
 
-  // Start FPing Tasks
-  for _, probeMap := range probesets {
-
-    // Start a goroutine for every probe
-    for _, probeValue := range probeMap.probes {
-      go PingWorker(dchan, probeMap, probeValue)
-    }
-  }
-
-  // Debug channel read loop
   for {
     fmt.Println(<-dchan)
   }
