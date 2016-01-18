@@ -1,5 +1,5 @@
 [goping]
-debug = true
+debug = false
 
 [influxdb]
 host = "10.1.1.151"
@@ -25,8 +25,8 @@ dl = "0xa"
 crew = "0xb"
 trash = "0xc"
 
-[targets.modem]
-name = "Telenet Modem"
+[targets.firewall]
+name = "Local Firewall"
 address = "192.168.0.1"
 links = [ "isp1", "isp2", "isp5" ]
 
@@ -38,3 +38,7 @@ links = "all"
 [targets.google2]
 name = "Google DNS 2"
 address = "8.8.4.4"
+
+[targets.offline]
+name = "Offline Dummy"
+address = "test.com"

@@ -1,11 +1,13 @@
 package main
 
 import (
+  "bufio"
   "fmt"
   "github.com/spf13/viper"
   "log"
   "os"
   "os/exec"
+  "strconv"
   "strings"
 )
 
@@ -22,6 +24,13 @@ type probemap struct {
   name    string
   probes  map[string]probe
   targets map[string]target
+}
+
+type pingresult struct {
+  host                string
+  sent, recv, losspct int
+  min, max, avg       float64
+  valid, up           bool
 }
 
 // Get a Stringmap of strings for reverse lookups, eg.:
@@ -52,8 +61,74 @@ func (probeMap probemap) TargetSlice() []string {
   return targets
 }
 
-func (t *target) ping(p *probe) {
-  fmt.Printf("pinging %s as %s with mark 0x%x\n", t.name, t.address, p.tos)
+// Wrapper around log.Fatal(err)
+// No-ops is err is nil
+func fatalErr(err error) {
+  if err != nil {
+    log.Fatal(err)
+  }
+}
+
+func isSlash(c rune) bool {
+  return c == '/'
+}
+
+// Parse FPing output line by line and return a pingresult
+// Example:
+// [15:51:41]
+// (    0     1       2       3    4         5      6        7     )
+// google.com : xmt/rcv/%loss = 1/1/0%, min/avg/max = 10.6/10.6/10.6
+// test.com   : xmt/rcv/%loss = 1/0/100%
+func PingParser(text string) pingresult {
+
+  // Returns a slice of strings, split over whitespace as defined in unicode.isSpace
+  fields := strings.Fields(text)
+
+  result := pingresult{valid: false, up: false}
+
+  // Timestamp is echoed on a separate line once every polling cycle -Q
+  // Only run the parser on lines that contain more than one field
+  // result.valid will remain false and will not be inserted into tsdb
+  if len(fields) > 1 {
+
+    result.host = fields[0]
+    lossString := fields[4]
+
+    lossData := strings.FieldsFunc(lossString, isSlash)
+
+    // Strip optional comma when host is up
+    lossData[2] = strings.TrimRight(lossData[2], ",")
+    // Strip percentage from %loss to interpret as int
+    lossData[2] = strings.TrimRight(lossData[2], "%")
+
+    sent, err := strconv.Atoi(lossData[0])
+    fatalErr(err)
+    recv, err := strconv.Atoi(lossData[1])
+    fatalErr(err)
+    losspct, err := strconv.Atoi(lossData[2])
+    fatalErr(err)
+
+    // 'valid' means okay for insertion into tsdb
+    result.sent, result.recv, result.losspct, result.valid = sent, recv, losspct, true
+
+    // Result has exactly 8 fields if host is up
+    if len(fields) == 8 {
+      rttString := fields[7]
+      rttData := strings.FieldsFunc(rttString, isSlash)
+
+      min, err := strconv.ParseFloat(rttData[0], 64)
+      fatalErr(err)
+      avg, err := strconv.ParseFloat(rttData[1], 64)
+      fatalErr(err)
+      max, err := strconv.ParseFloat(rttData[2], 64)
+      fatalErr(err)
+
+      // Target is confirmed to be up
+      result.min, result.avg, result.max, result.up = min, avg, max, true
+    }
+  }
+
+  return result
 }
 
 func DumpTargets(targets *map[string]target) {
@@ -133,30 +208,67 @@ func ReadConfig(probesets *map[string]probemap) {
           fmt.Println("Adding probe", vTname, "to probeset", tProbe)
           pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
         } else {
-          log.Printf("Missing probe %s defined in %s, ignoring.", tProbe, vTname)
+          fmt.Printf("Missing probe %s defined in %s, ignoring.", tProbe, vTname)
         }
       }
     }
   }
 }
 
-func PingWorker(name string, tos string, targets []string, revtargets map[string]string) {
-  //fpargs := []string{"-B 1", "-D", "-r0", "-O 0", "-Q 1", "-p 1000", "-l"}
+// PingWorker starts an fping instance given:
+// - the feedback channel used for debugging
+// - the probemap containing a list of targets
+// - the probe containing the name and ToS value used to start the fping instance
+func PingWorker(dchan chan<- string, probeMap probemap, probeValue probe) {
+  fpparams := []string{"-B 1", "-D", "-r0", "-O 0", "-Q 1", "-p 1000", "-l", "-e"}
 
-  fmt.Printf("%s, %s: %s\n", name, tos, strings.Join(targets, " "))
-  fmt.Printf("%v\n", revtargets)
+  fmt.Printf("Starting worker %s, %s: %s\n", probeValue.name, probeValue.tos, strings.Join(probeMap.TargetSlice(), " "))
+  fmt.Printf("%v\n", probeMap.TargetStringMapRev())
+
+  fpargs := append(fpparams, probeMap.TargetSlice()...)
+
+  // exec.Command() uses LookPath internally to look up fping binary path
+  cmd := exec.Command("fping", fpargs...)
+
+  // stdout, err := cmd.StdoutPipe()
+  // fatalErr(err)
+
+  stderr, err := cmd.StderrPipe()
+  fatalErr(err)
+
+  err = cmd.Start()
+  fatalErr(err)
+
+  // fping echoes all results to stderr
+  buff := bufio.NewScanner(stderr)
+
+  for buff.Scan() {
+    // Only ever act if result is valid
+    // Timestamp lines will always come back with result.valid set to false
+    if result := PingParser(buff.Text()); result.valid {
+
+      // TODO: Insert points into tsdb
+
+      if viper.GetBool("goping.debug") {
+        if result.up {
+          dchan <- fmt.Sprintf("Host: %s, loss: %d%%, min: %.2f, avg: %.2f, max: %.2f", result.host, result.losspct, result.min, result.avg, result.max)
+        } else {
+          dchan <- fmt.Sprintf("Host: %s is down", result.host)
+        }
+      }
+    }
+  }
 }
 
 func main() {
+
+  probesets := make(map[string]probemap)
+  dchan := make(chan string)
 
   if _, err := exec.LookPath("fping"); err != nil {
     log.Fatal("FPing binary not found. Exiting.")
   }
 
-  // Declare Data Structures
-  probesets := make(map[string]probemap)
-
-  // Get working directory
   pwd, err := os.Getwd()
   if err != nil {
     log.Fatal(err)
@@ -193,8 +305,12 @@ func main() {
 
     // Start a goroutine for every probe
     for _, probeValue := range probeMap.probes {
-
-      PingWorker(probeValue.name, probeValue.tos, probeMap.TargetSlice(), probeMap.TargetStringMapRev())
+      go PingWorker(dchan, probeMap, probeValue)
     }
+  }
+
+  // Debug channel read loop
+  for {
+    fmt.Println(<-dchan)
   }
 }
