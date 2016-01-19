@@ -1,29 +1,29 @@
 [goping]
-debug = false
+debug = true
 
 [influxdb]
-host = "10.1.1.151"
-port = "8086"
+measurement = "goping"
 db = "ping"
-measurement = "ping"
+host = "10.1.1.151"
+port = "8090"
 user = "timo"
 pass = "timo"
 
 [probes.isp1]
-prio1 = "0x1"
-prio2 = "0x2"
-browse = "0x3"
-dl = "0x4"
-crew = "0x5"
-trash = "0x6"
+prio1 = 1
+prio2 = 2
+browse = 3
+dl = 4
+crew = 5
+trash = 6
 
 [probes.isp2]
-prio1 = "0x7"
-prio2 = "0x8"
-browse = "0x9"
-dl = "0xa"
-crew = "0xb"
-trash = "0xc"
+prio1 = 7
+prio2 = 8
+browse = 9
+dl = 10
+crew = 11
+trash = 12
 
 [targets.firewall]
 name = "Local Firewall"

@@ -3,12 +3,16 @@ package main
 import (
   "bufio"
   "fmt"
+  "github.com/influxdata/influxdb/client/v2"
   "github.com/spf13/viper"
   "log"
+  "math/rand"
   "os"
   "os/exec"
+  "reflect"
   "strconv"
   "strings"
+  "time"
 )
 
 type target struct {
@@ -17,7 +21,7 @@ type target struct {
 
 type probe struct {
   name string
-  tos  string
+  tos  int
 }
 
 type probemap struct {
@@ -27,10 +31,10 @@ type probemap struct {
 }
 
 type pingresult struct {
-  host                string
-  sent, recv, losspct int
-  min, max, avg       float64
-  valid, up           bool
+  host, probename, target string
+  sent, recv, losspct     int
+  min, max, avg           float64
+  valid, up               bool
 }
 
 // Get a Stringmap of strings for reverse lookups, eg.:
@@ -41,8 +45,8 @@ func (probeMap probemap) TargetStringMapRev() map[string]string {
 
   targetMap := make(map[string]string)
 
-  for targetName, targetValue := range probeMap.targets {
-    targetMap[targetValue.address] = targetName
+  for targetid, targetval := range probeMap.targets {
+    targetMap[targetval.address] = targetid
   }
 
   return targetMap
@@ -161,12 +165,24 @@ func ReadConfig(probesets *map[string]probemap) {
     fmt.Println("Adding", vProbeMap, "to probesets")
 
     // Add probemap to probesets and initialize empty probes stringmap
-    (*probesets)[vProbeMap] = probemap{name: vProbeMap, probes: map[string]probe{}, targets: map[string]target{}}
+    (*probesets)[vProbeMap] = probemap{
+      name:    vProbeMap,
+      probes:  map[string]probe{},
+      targets: map[string]target{},
+    }
 
     // Declare probes inside the current probemap
     for probename, tosvalue := range vProbes.(map[string]interface{}) {
       fmt.Printf("probename: %v, tosvalue: %v\n", probename, tosvalue)
-      (*probesets)[vProbeMap].probes[probename] = probe{name: probename, tos: tosvalue.(string)}
+
+      if reflect.TypeOf(tosvalue).Kind() != reflect.Int64 {
+        log.Fatal("TOS value for probe ", probename, " is not an integer")
+      }
+
+      (*probesets)[vProbeMap].probes[probename] = probe{
+        name: probename,
+        tos:  int(tosvalue.(int64)),
+      }
     }
   }
 
@@ -216,15 +232,18 @@ func ReadConfig(probesets *map[string]probemap) {
 }
 
 // PingWorker starts an fping instance given:
-// - the feedback channel used for debugging
 // - the probemap containing a list of targets
 // - the probe containing the name and ToS value used to start the fping instance
-func PingWorker(dchan chan<- string, probeMap probemap, probeValue probe) {
-  fpparams := []string{"-B 1", "-D", "-r0", "-O 0", "-Q 1", "-p 1000", "-l", "-e"}
+// - the feedback channel used for debugging
+// Calls PingParser on every FPing event and sends the result to WritePoints
+func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dchan chan<- string) {
+  fpparams := []string{"-B 1", "-D", "-r0", "-Q 10", "-p 1000", "-l", "-e"}
+
+  fpargs := append(fpparams, "-O", strconv.Itoa(probeValue.tos))
+
+  fpargs = append(fpargs, probeMap.TargetSlice()...)
 
   fmt.Printf("Starting worker %s, %s: %s\n", probeValue.name, probeValue.tos, strings.Join(probeMap.TargetSlice(), " "))
-
-  fpargs := append(fpparams, probeMap.TargetSlice()...)
 
   // exec.Command() uses LookPath internally to look up fping binary path
   cmd := exec.Command("fping", fpargs...)
@@ -235,18 +254,25 @@ func PingWorker(dchan chan<- string, probeMap probemap, probeValue probe) {
   stderr, err := cmd.StderrPipe()
   fatalErr(err)
 
+  // Sleep for max. 1 sec to avoid hitting rate limits when pinging
+  time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
+
   err = cmd.Start()
   fatalErr(err)
 
   // fping echoes all results to stderr
   buff := bufio.NewScanner(stderr)
 
+  // Listen for FPing echo events
   for buff.Scan() {
     // Only ever act if result is valid
     // Timestamp lines will always come back with result.valid set to false
     if result := PingParser(buff.Text()); result.valid {
 
-      // TODO: Insert points into tsdb
+      result.probename = probeValue.name
+      result.target = probeMap.TargetStringMapRev()[result.host]
+
+      WritePoints(dbclient, result, dchan)
 
       if viper.GetBool("goping.debug") {
         if result.up {
@@ -260,16 +286,61 @@ func PingWorker(dchan chan<- string, probeMap probemap, probeValue probe) {
 }
 
 // Run a PingWorker for every probe in every probemap
-func RunWorkers(probesets map[string]probemap, dchan chan<- string) {
+func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan chan<- string) {
   // Start a PingWorker (FPing instance) for every probe
   for _, probeMap := range probesets {
     if viper.GetBool("goping.debug") {
       DumpTargets(probeMap.targets)
     }
     for _, probeValue := range probeMap.probes {
-      go PingWorker(dchan, probeMap, probeValue)
+      go PingWorker(probeMap, probeValue, dbclient, dchan)
     }
   }
+}
+
+func WritePoints(dbclient client.Client, point pingresult, dchan chan<- string) {
+  measurement := viper.GetString("influxdb.measurement")
+  hostname, _ := os.Hostname()
+
+  fields := map[string]interface{}{
+    "losspct": point.losspct,
+  }
+
+  tags := map[string]string{
+    "src_host":    hostname,
+    "target_host": point.host,
+    "target_name": point.target,
+  }
+
+  // min, max, avg only given when point.up == true
+  if point.up {
+    fields["min"] = point.min
+    fields["avg"] = point.avg
+    fields["max"] = point.max
+  }
+
+  if point.probename != "" {
+    tags["probe"] = point.probename
+  }
+
+  // Create new point batch
+  batch, _ := client.NewBatchPoints(client.BatchPointsConfig{
+    Database:  viper.GetString("influxdb.db"),
+    Precision: "ns",
+  })
+
+  // Create point and add to batch
+  influxpt, err := client.NewPoint(measurement, tags, fields, time.Now())
+
+  if err != nil {
+    dchan <- err.Error()
+  }
+
+  batch.AddPoint(influxpt)
+
+  err = dbclient.Write(batch)
+
+  fatalErr(err)
 }
 
 func main() {
@@ -293,6 +364,8 @@ func main() {
 
   // Set Configuration Defaults
   viper.SetDefault("goping.debug", true)
+  viper.SetDefault("influxdb.host", "localhost")
+  viper.SetDefault("influxdb.port", 8086)
 
   // TODO: extend this with more targeted info, like config search path etc.
   if err != nil {
@@ -301,9 +374,18 @@ func main() {
     fmt.Println("GoPing configuration successfully loaded.")
   }
 
+  // Make HTTP client for InfluxDB
+  dbclient, err := client.NewUDPClient(client.UDPConfig{
+    Addr: fmt.Sprintf("%s:%d", viper.GetString("influxdb.host"), viper.GetInt("influxdb.port")),
+  })
+  if err != nil {
+    fmt.Println("Error creating InfluxDB Client: ", err.Error())
+  }
+  defer dbclient.Close()
+
   ReadConfig(&probesets)
 
-  RunWorkers(probesets, dchan)
+  RunWorkers(probesets, dbclient, dchan)
 
   for {
     fmt.Println(<-dchan)
