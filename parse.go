@@ -6,7 +6,6 @@ import (
   "github.com/influxdata/influxdb/client/v2"
   "github.com/spf13/viper"
   "log"
-  "math/rand"
   "os"
   "os/exec"
   "reflect"
@@ -237,13 +236,13 @@ func ReadConfig(probesets *map[string]probemap) {
 // - the feedback channel used for debugging
 // Calls PingParser on every FPing event and sends the result to WritePoints
 func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dchan chan<- string) {
-  fpparams := []string{"-B 1", "-D", "-r0", "-Q 10", "-p 1000", "-l", "-e"}
+  fpparams := []string{"-B 1", "-D", "-r0", "-Q 10", "-p 1000", "-l", "-e", "-p 5000"}
 
   fpargs := append(fpparams, "-O", strconv.Itoa(probeValue.tos))
 
   fpargs = append(fpargs, probeMap.TargetSlice()...)
 
-  fmt.Printf("Starting worker %s, %s: %s\n", probeValue.name, probeValue.tos, strings.Join(probeMap.TargetSlice(), " "))
+  fmt.Printf("Starting worker %s, %d: %s\n", probeValue.name, probeValue.tos, strings.Join(probeMap.TargetSlice(), " "))
 
   // exec.Command() uses LookPath internally to look up fping binary path
   cmd := exec.Command("fping", fpargs...)
@@ -253,9 +252,6 @@ func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dch
 
   stderr, err := cmd.StderrPipe()
   fatalErr(err)
-
-  // Sleep for max. 1 sec to avoid hitting rate limits when pinging
-  time.Sleep(time.Duration(rand.Intn(1000)) * time.Millisecond)
 
   err = cmd.Start()
   fatalErr(err)
@@ -293,6 +289,9 @@ func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan cha
       DumpTargets(probeMap.targets)
     }
     for _, probeValue := range probeMap.probes {
+      // Stagger workers to avoid hitting rate limits when pinging
+      time.Sleep(time.Duration(33) * time.Millisecond)
+
       go PingWorker(probeMap, probeValue, dbclient, dchan)
     }
   }
