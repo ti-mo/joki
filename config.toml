@@ -1,5 +1,8 @@
-[goping]
-debug = true
+# GoPing
+# Uses Viper to parse configuration
+debug = false
+rate = 1000
+interval = 10
 
 [influxdb]
 measurement = "goping"

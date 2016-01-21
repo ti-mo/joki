@@ -144,10 +144,20 @@ func DumpTargets(targets map[string]target) {
 // Extract probemap data from configuration file
 func ReadConfig(probesets *map[string]probemap) {
 
+  influxkeys := []string{"measurement", "db", "host", "port", "user", "pass"}
+
   // Config sanity check
   if !viper.InConfig("influxdb") {
     log.Fatal("Please configure influxdb in config.toml")
   }
+
+  for _, key := range influxkeys {
+    keyname := "influxdb." + key
+    if !viper.IsSet(keyname) {
+      log.Fatal("Please set `influxdb.", key, "` in config.toml")
+    }
+  }
+
   if !viper.InConfig("probes") {
     log.Fatal("Please configure probes in config.toml")
   }
@@ -155,13 +165,17 @@ func ReadConfig(probesets *map[string]probemap) {
     log.Fatal("Please define targets in config.toml")
   }
 
-  // Load probes
   vProbeSets := viper.GetStringMap("probes")
-  fmt.Printf("\nProbesets: %v\n", vProbeSets)
+
+  if viper.GetBool("debug") {
+    fmt.Printf("\nProbesets: %v\n", vProbeSets)
+  }
 
   for vProbeMap, vProbes := range vProbeSets {
 
-    fmt.Println("Adding", vProbeMap, "to probesets")
+    if viper.GetBool("debug") {
+      fmt.Println("Adding", vProbeMap, "to probesets")
+    }
 
     // Add probemap to probesets and initialize empty probes stringmap
     (*probesets)[vProbeMap] = probemap{
@@ -172,7 +186,9 @@ func ReadConfig(probesets *map[string]probemap) {
 
     // Declare probes inside the current probemap
     for probename, tosvalue := range vProbes.(map[string]interface{}) {
-      fmt.Printf("probename: %v, tosvalue: %v\n", probename, tosvalue)
+      if viper.GetBool("debug") {
+        fmt.Printf("probename: %v, tosvalue: %v\n", probename, tosvalue)
+      }
 
       if reflect.TypeOf(tosvalue).Kind() != reflect.Int64 {
         log.Fatal("TOS value for probe ", probename, " is not an integer")
@@ -212,7 +228,9 @@ func ReadConfig(probesets *map[string]probemap) {
     // Assign this to all probeMaps
     if len(tLinks) == 0 || tLinks[0] == "all" {
       for pSet, pMap := range *probesets {
-        fmt.Println("Adding probe", vTname, "to probeset", pSet, "[all]")
+        if viper.GetBool("debug") {
+          fmt.Println("Adding probe", vTname, "to probeset", pSet, "[all]")
+        }
         pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
       }
     } else {
@@ -220,10 +238,12 @@ func ReadConfig(probesets *map[string]probemap) {
       for _, tProbe := range tLinks {
         // Look up tProbe in probesets
         if pMap, ok := (*probesets)[tProbe]; ok {
-          fmt.Println("Adding probe", vTname, "to probeset", tProbe)
+          if viper.GetBool("debug") {
+            fmt.Println("Adding target", vTname, "to probeset", tProbe)
+          }
           pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
         } else {
-          fmt.Printf("Missing probe %s defined in %s, ignoring.", tProbe, vTname)
+          log.Printf("Missing probe %s defined in %s, ignoring.", tProbe, vTname)
         }
       }
     }
@@ -236,9 +256,12 @@ func ReadConfig(probesets *map[string]probemap) {
 // - the feedback channel used for debugging
 // Calls PingParser on every FPing event and sends the result to WritePoints
 func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dchan chan<- string) {
-  fpparams := []string{"-B 1", "-D", "-r0", "-Q 10", "-p 1000", "-l", "-e", "-p 5000"}
+  fpparams := []string{"-B 1", "-D", "-r 1", "-i 10", "-l", "-e"}
 
+  // Build FPing Parameters
   fpargs := append(fpparams, "-O", strconv.Itoa(probeValue.tos))
+  fpargs = append(fpargs, "-p", strconv.Itoa(viper.GetInt("rate")))
+  fpargs = append(fpargs, "-Q", strconv.Itoa(viper.GetInt("interval")))
 
   fpargs = append(fpargs, probeMap.TargetSlice()...)
 
@@ -270,7 +293,7 @@ func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dch
 
       WritePoints(dbclient, result, dchan)
 
-      if viper.GetBool("goping.debug") {
+      if viper.GetBool("debug") {
         if result.up {
           dchan <- fmt.Sprintf("Host: %s, loss: %d%%, min: %.2f, avg: %.2f, max: %.2f", result.host, result.losspct, result.min, result.avg, result.max)
         } else {
@@ -285,7 +308,7 @@ func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dch
 func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan chan<- string) {
   // Start a PingWorker (FPing instance) for every probe
   for _, probeMap := range probesets {
-    if viper.GetBool("goping.debug") {
+    if viper.GetBool("debug") {
       DumpTargets(probeMap.targets)
     }
     for _, probeValue := range probeMap.probes {
@@ -359,12 +382,14 @@ func main() {
   // Viper metaconfiguration
   viper.SetConfigName("config")
   viper.AddConfigPath(pwd)
-  err = viper.ReadInConfig()
 
-  // Set Configuration Defaults
-  viper.SetDefault("goping.debug", true)
-  viper.SetDefault("influxdb.host", "localhost")
-  viper.SetDefault("influxdb.port", 8086)
+  // Configuration Defaults
+  // Nested configuration is blocked by spf13/viper issue #71
+  viper.SetDefault("debug", false)
+  viper.SetDefault("rate", 1000)
+  viper.SetDefault("interval", 10)
+
+  err = viper.ReadInConfig()
 
   // TODO: extend this with more targeted info, like config search path etc.
   if err != nil {
