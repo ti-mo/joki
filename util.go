@@ -30,10 +30,10 @@ type probemap struct {
 }
 
 type pingresult struct {
-  host, probename, target string
-  sent, recv, losspct     int
-  min, max, avg           float64
-  valid, up               bool
+  host, probename, probeset, target string
+  sent, recv, losspct               int
+  min, max, avg                     float64
+  valid, up                         bool
 }
 
 // Get a Stringmap of strings for reverse lookups, eg.:
@@ -41,7 +41,6 @@ type pingresult struct {
 // This is useful to translate back to a name when parsing output
 // for logging purposes after the argument has been handed off to FPing
 func (probeMap probemap) TargetStringMapRev() map[string]string {
-
   targetMap := make(map[string]string)
 
   for targetid, targetval := range probeMap.targets {

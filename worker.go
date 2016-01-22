@@ -25,15 +25,15 @@ import (
 // Sends debug output to a given string channel
 func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan chan<- string) {
   // Start a PingWorker (FPing instance) for every probe
-  for _, probeMap := range probesets {
+  for pset, pmap := range probesets {
     if viper.GetBool("debug") {
-      probeMap.DumpTargets()
+      pmap.DumpTargets()
     }
-    for _, probeValue := range probeMap.probes {
+    for _, pval := range pmap.probes {
       // Stagger workers to avoid hitting rate limits when pinging
       time.Sleep(time.Duration(33) * time.Millisecond)
 
-      go PingWorker(probeMap, probeValue, dbclient, dchan)
+      go PingWorker(pmap, pset, pval, dbclient, dchan)
     }
   }
 }
@@ -43,17 +43,17 @@ func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan cha
 // - the probe containing the name and ToS value used to start the fping instance
 // - the feedback channel used for debugging
 // Calls PingParser on every FPing event and sends the result to WritePoints
-func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dchan chan<- string) {
+func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, dchan chan<- string) {
   fpparams := []string{"-B 1", "-D", "-r 1", "-i 10", "-l", "-e"}
 
   // Build FPing Parameters
-  fpargs := append(fpparams, "-O", strconv.Itoa(probeValue.tos))
+  fpargs := append(fpparams, "-O", strconv.Itoa(pval.tos))
   fpargs = append(fpargs, "-p", strconv.Itoa(viper.GetInt("rate")))
   fpargs = append(fpargs, "-Q", strconv.Itoa(viper.GetInt("interval")))
 
-  fpargs = append(fpargs, probeMap.TargetSlice()...)
+  fpargs = append(fpargs, pmap.TargetSlice()...)
 
-  fmt.Printf("Starting worker %s, %d: %s\n", probeValue.name, probeValue.tos, strings.Join(probeMap.TargetSlice(), " "))
+  fmt.Printf("%s - starting worker %s, %d: %s\n", pset, pval.name, pval.tos, strings.Join(pmap.TargetSlice(), " "))
 
   // exec.Command() uses LookPath internally to look up fping binary path
   cmd := exec.Command("fping", fpargs...)
@@ -76,16 +76,17 @@ func PingWorker(probeMap probemap, probeValue probe, dbclient client.Client, dch
     // Timestamp lines will always come back with result.valid set to false
     if result := PingParser(buff.Text()); result.valid {
 
-      result.probename = probeValue.name
-      result.target = probeMap.TargetStringMapRev()[result.host]
+      result.probename = pval.name
+      result.probeset = pset
+      result.target = pmap.TargetStringMapRev()[result.host]
 
       WritePoints(dbclient, result, dchan)
 
       if viper.GetBool("debug") {
         if result.up {
-          dchan <- fmt.Sprintf("Host: %s, loss: %d%%, min: %.2f, avg: %.2f, max: %.2f", result.host, result.losspct, result.min, result.avg, result.max)
+          dchan <- fmt.Sprintf("%s - %s [%s] loss: %d%%, min: %.2f, avg: %.2f, max: %.2f", result.probeset, result.target, result.host, result.losspct, result.min, result.avg, result.max)
         } else {
-          dchan <- fmt.Sprintf("Host: %s is down", result.host)
+          dchan <- fmt.Sprintf("[%s] is down", result.host)
         }
       }
     }
@@ -173,6 +174,10 @@ func WritePoints(dbclient client.Client, point pingresult, dchan chan<- string) 
 
   if point.probename != "" {
     tags["probe"] = point.probename
+  }
+
+  if point.probeset != "" {
+    tags["probe_set"] = point.probeset
   }
 
   // Create new point batch
