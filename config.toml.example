@@ -1,7 +1,6 @@
 # GoPing
-# Uses Viper to parse configuration
 debug = false
-rate = 1000
+rate = 500
 interval = 10
 
 [influxdb]
@@ -12,36 +11,26 @@ port = "8090"
 user = "ping"
 pass = "pong"
 
-[probes.isp1]
+[probes.link1]
 prio1 = 1
 prio2 = 2
 browse = 3
-dl = 4
-crew = 5
-trash = 6
 
-[probes.isp2]
+[probes.link2]
 prio1 = 7
 prio2 = 8
 browse = 9
-dl = 10
-crew = 11
-trash = 12
 
-[targets.firewall]
-name = "Local Firewall"
-address = "192.168.0.1"
-links = [ "isp1", "isp2", "isp5" ]
+[targets.google]
+name = "Google"
+address = "google.com"
+probes = [ "link1", "link2", "dummy" ]
 
-[targets.google1]
-name = "Google DNS"
-address = "8.8.8.8"
-links = "all"
+[targets.linode]
+name = "Linode"
+address = "speedtest.london.linode.com"
+probes = "all"
 
-[targets.google2]
-name = "Google DNS 2"
-address = "8.8.4.4"
-
-[targets.offline]
-name = "Offline Dummy"
-address = "test.com"
+[targets.localhost]
+name = "Localhost"
+address = "127.0.0.1"

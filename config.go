@@ -41,27 +41,27 @@ func ReadConfig(probesets *map[string]probemap) {
     log.Fatal("Please define targets in config.toml")
   }
 
-  vProbeSets := viper.GetStringMap("probes")
+  vprobesets := viper.GetStringMap("probes")
 
   if viper.GetBool("debug") {
-    fmt.Printf("\nProbesets: %v\n", vProbeSets)
+    fmt.Printf("\nProbesets: %v\n", vprobesets)
   }
 
-  for vProbeMap, vProbes := range vProbeSets {
+  for probesetname, probeset := range vprobesets {
 
     if viper.GetBool("debug") {
-      fmt.Println("Adding", vProbeMap, "to probesets")
+      fmt.Println("Adding", probesetname, "to probesets")
     }
 
     // Add probemap to probesets and initialize empty probes stringmap
-    (*probesets)[vProbeMap] = probemap{
-      name:    vProbeMap,
+    (*probesets)[probesetname] = probemap{
+      name:    probesetname,
       probes:  map[string]probe{},
       targets: map[string]target{},
     }
 
     // Declare probes inside the current probemap
-    for probename, tosvalue := range vProbes.(map[string]interface{}) {
+    for probename, tosvalue := range probeset.(map[string]interface{}) {
       if viper.GetBool("debug") {
         fmt.Printf("probename: %v, tosvalue: %v\n", probename, tosvalue)
       }
@@ -70,7 +70,7 @@ func ReadConfig(probesets *map[string]probemap) {
         log.Fatal("TOS value for probe ", probename, " is not an integer")
       }
 
-      (*probesets)[vProbeMap].probes[probename] = probe{
+      (*probesets)[probesetname].probes[probename] = probe{
         name: probename,
         tos:  int(tosvalue.(int64)),
       }
@@ -78,48 +78,48 @@ func ReadConfig(probesets *map[string]probemap) {
   }
 
   // Load targets
-  vTargets := viper.GetStringMap("targets")
+  vtargets := viper.GetStringMap("targets")
 
   // Get Viper Target objects and parse them into structs
-  for vTname, vTarget := range vTargets {
+  for vtname, vtarget := range vtargets {
 
-    avTarget, ok := vTarget.(map[string]interface{})
+    tmap, ok := vtarget.(map[string]interface{})
     if !ok {
-      log.Fatal("Error while parsing configuration for target", vTname)
+      log.Fatal("Error while parsing configuration for target", vtname)
     }
 
-    tLongName, ok := avTarget["name"].(string)
+    tlongname, ok := tmap["name"].(string)
     if !ok {
-      log.Fatal("Error parsing ", vTname, "'s target name")
+      log.Fatal("Error parsing ", vtname, "'s target name")
     }
 
-    tAddress, ok := avTarget["address"].(string)
+    taddress, ok := tmap["address"].(string)
     if !ok {
-      log.Fatal("Error parsing address for target ", vTname)
+      log.Fatal("Error parsing address for target ", vtname)
     }
 
-    // Use Viper functions to get the 'links' slice.
-    tLinks := viper.GetStringSlice("targets." + vTname + ".links")
+    // Use Viper functions to get the 'probes' slice.
+    tprobes := viper.GetStringSlice("targets." + vtname + ".probes")
 
     // Assign this to all probeMaps
-    if len(tLinks) == 0 || tLinks[0] == "all" {
-      for pSet, pMap := range *probesets {
+    if len(tprobes) == 0 || tprobes[0] == "all" {
+      for pset, pmap := range *probesets {
         if viper.GetBool("debug") {
-          fmt.Println("Adding probe", vTname, "to probeset", pSet, "[all]")
+          fmt.Println("Adding probe", vtname, "to probeset", pset, "[all]")
         }
-        pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
+        pmap.targets[vtname] = target{name: vtname, longname: tlongname, address: taddress}
       }
     } else {
       // Assign Targets to their defined ProbeMaps
-      for _, tProbe := range tLinks {
-        // Look up tProbe in probesets
-        if pMap, ok := (*probesets)[tProbe]; ok {
+      for _, tprobe := range tprobes {
+        // Look up tprobe in probesets
+        if pmap, ok := (*probesets)[tprobe]; ok {
           if viper.GetBool("debug") {
-            fmt.Println("Adding target", vTname, "to probeset", tProbe)
+            fmt.Println("Adding target", vtname, "to probeset", tprobe)
           }
-          pMap.targets[vTname] = target{name: vTname, longname: tLongName, address: tAddress}
+          pmap.targets[vtname] = target{name: vtname, longname: tlongname, address: taddress}
         } else {
-          log.Printf("Missing probe %s defined in %s, ignoring.", tProbe, vTname)
+          log.Printf("Missing probe %s defined in %s, ignoring.", tprobe, vtname)
         }
       }
     }
