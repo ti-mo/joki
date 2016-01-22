@@ -7,10 +7,10 @@ interval = 10
 [influxdb]
 measurement = "goping"
 db = "ping"
-host = "10.1.1.151"
+host = "10.1.1.1"
 port = "8090"
-user = "timo"
-pass = "timo"
+user = "ping"
+pass = "pong"
 
 [probes.isp1]
 prio1 = 1
