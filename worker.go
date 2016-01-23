@@ -101,10 +101,15 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
 // test.com   : xmt/rcv/%loss = 1/0/100%
 func PingParser(text string) pingresult {
 
+  result := pingresult{valid: false, up: false}
+
+  // Make sure hostname can be resolved
+  if strings.ContainsAny(text, "address not found") {
+    return result
+  }
+
   // Returns a slice of strings, split over whitespace as defined in unicode.isSpace
   fields := strings.Fields(text)
-
-  result := pingresult{valid: false, up: false}
 
   // Timestamp is echoed on a separate line once every polling cycle -Q
   // Only run the parser on lines that contain more than one field
