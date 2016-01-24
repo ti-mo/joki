@@ -81,10 +81,6 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
     // Compile a slice of pingresults returned by PingParser
     buff := bufio.NewScanner(stderr)
     for buff.Scan() {
-      if viper.GetBool("debug") {
-        fmt.Println(buff.Text())
-      }
-
       // PingParser() returns err when FPing says "address not found"
       if result, err := PingParser(buff.Text()); err == nil {
 
