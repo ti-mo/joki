@@ -56,6 +56,8 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
 
   fpargs = append(fpargs, pmap.TargetSlice()...)
 
+  backoff := 0
+
   fmt.Printf("%s - starting worker %s, %d: %s\n", pset, pval.name, pval.tos, strings.Join(pmap.TargetSlice(), " "))
 
   // Run FPing -C for one sequence (polling cycle)
@@ -65,7 +67,7 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
     // exec.Command() uses LookPath internally to look up fping binary path
     cmd := exec.Command("fping", fpargs...)
 
-    stderr, err := cmd.StdoutPipe()
+    stderr, err := cmd.StderrPipe()
     fatalErr(err)
 
     // Run FPing process
@@ -86,6 +88,9 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
       // PingParser() returns err when FPing says "address not found"
       if result, err := PingParser(buff.Text()); err == nil {
 
+        // Reset backoff factor on successful parse
+        backoff = 0
+
         // Fill in missing data from FPing output to pass to InfluxDB as tags
         result.probename = pval.name
         result.probeset = pset
@@ -102,19 +107,28 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
         }
       } else if err != nil {
         // FPing returns with "address not found"
-        logErr(err)
+        logErr(errors.New(fmt.Sprintf("%s - %s", pval.name, err.Error())))
       }
     }
 
     cmd.Wait()
 
+    // Wait for at least <interval>ms before starting the next cycle
+    timer := time.NewTimer(time.Millisecond * time.Duration(viper.GetInt("interval")))
+
+    // Result processing happens async, this way the intervals don't desync
     if len(pingresults) > 0 {
       go WritePoints(dbclient, pingresults, dchan)
     } else {
-      // TODO: Implement incremental backoff for workers that yield nothing
+      // Workers that yield nothing are put on incremental backoff
+      if backoff <= 9 {
+        backoff++
+      }
+      timer = time.NewTimer(time.Minute * time.Duration(backoff))
+      logErr(errors.New(fmt.Sprintf("Worker %s yielded no results, sleeping for %d minute(s)", pval.name, backoff)))
     }
 
-    // TODO: Wait for at least <interval>ms before starting the next round
+    <-timer.C
 
   }
 }
