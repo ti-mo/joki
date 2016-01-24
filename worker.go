@@ -148,42 +148,39 @@ func PingParser(text string) (pingresult, error) {
   // Returns a slice of strings, split over whitespace as defined in unicode.isSpace
   fields := strings.Fields(text)
 
-  // Ignore empty lines
-  if len(fields) > 1 {
+  // Ignore empty lines and do some sanity checking
+  if len(fields) > 1 && fields[1] == ":" {
 
     result.host = fields[0]
-    lossString := fields[4]
+    points := fields[2:]
 
-    lossData := strings.FieldsFunc(lossString, isSlash)
+    var total float64
 
-    // Strip optional comma when host is up
-    lossData[2] = strings.TrimRight(lossData[2], ",")
-    // Strip percentage from %loss to interpret as int
-    lossData[2] = strings.TrimRight(lossData[2], "%")
+    for _, point := range points {
+      fpoint, err := strconv.ParseFloat(point, 64)
+      if err == nil {
+        total += fpoint
+        result.sent++
+        result.recv++
 
-    sent, err := strconv.Atoi(lossData[0])
-    fatalErr(err)
-    recv, err := strconv.Atoi(lossData[1])
-    fatalErr(err)
-    losspct, err := strconv.Atoi(lossData[2])
-    fatalErr(err)
+        if fpoint < result.min || result.min == 0.0 {
+          result.min = fpoint
+        }
 
-    result.sent, result.recv, result.losspct = sent, recv, losspct
+        if fpoint > result.max {
+          result.max = fpoint
+        }
+      } else if point == "-" {
+        result.sent++
+      }
+    }
 
-    // Result has exactly 8 fields if host is up
-    if len(fields) == 8 {
-      rttString := fields[7]
-      rttData := strings.FieldsFunc(rttString, isSlash)
-
-      min, err := strconv.ParseFloat(rttData[0], 64)
-      fatalErr(err)
-      avg, err := strconv.ParseFloat(rttData[1], 64)
-      fatalErr(err)
-      max, err := strconv.ParseFloat(rttData[2], 64)
-      fatalErr(err)
-
-      // Target is confirmed to be up
-      result.min, result.avg, result.max, result.up = min, avg, max, true
+    if result.recv > 0 {
+      result.avg = total / float64(result.recv)
+      result.losspct = (result.sent - result.recv) * 100 / result.sent
+      result.up = true
+    } else {
+      result.losspct = 100
     }
   }
 
