@@ -47,7 +47,7 @@ func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan cha
 // - the feedback channel used for debugging
 // Calls PingParser on every FPing event and sends the result to WritePoints
 func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, dchan chan<- string) {
-  fpparams := []string{"-B 1", "-D", "-r 1", "-i 10", "-e", "-u"}
+  fpparams := []string{"-B 1", "-D", "-r 1", "-i 10", "-e", "-u", "-q"}
 
   // Build FPing Parameters
   fpargs := append(fpparams, "-O", strconv.Itoa(pval.tos))
