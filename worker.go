@@ -30,10 +30,12 @@ func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan cha
       pmap.DumpTargets()
     }
     for _, pval := range pmap.probes {
-      // Stagger workers to avoid hitting rate limits when pinging
-      time.Sleep(time.Duration(33) * time.Millisecond)
-
-      go PingWorker(pmap, pset, pval, dbclient, dchan)
+      // Only start workers for probes that have at least one target
+      if len(pmap.targets) > 0 {
+        // Stagger workers to avoid hitting rate limits when pinging
+        time.Sleep(time.Duration(33) * time.Millisecond)
+        go PingWorker(pmap, pset, pval, dbclient, dchan)
+      }
     }
   }
 }
