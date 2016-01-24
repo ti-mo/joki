@@ -11,6 +11,7 @@ package main
 
 import (
   "bufio"
+  "errors"
   "fmt"
   "github.com/influxdata/influxdb/client/v2"
   "github.com/spf13/viper"
@@ -46,68 +47,92 @@ func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan cha
 // - the feedback channel used for debugging
 // Calls PingParser on every FPing event and sends the result to WritePoints
 func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, dchan chan<- string) {
-  fpparams := []string{"-B 1", "-D", "-r 1", "-i 10", "-l", "-e"}
+  fpparams := []string{"-B 1", "-D", "-r 1", "-i 10", "-e", "-u"}
 
   // Build FPing Parameters
   fpargs := append(fpparams, "-O", strconv.Itoa(pval.tos))
-  fpargs = append(fpargs, "-p", strconv.Itoa(viper.GetInt("rate")))
-  fpargs = append(fpargs, "-Q", strconv.Itoa(viper.GetInt("interval")))
+  fpargs = append(fpargs, "-p", strconv.Itoa(viper.GetInt("interval")))
+  fpargs = append(fpargs, "-C", strconv.Itoa(viper.GetInt("cycle")))
 
   fpargs = append(fpargs, pmap.TargetSlice()...)
 
   fmt.Printf("%s - starting worker %s, %d: %s\n", pset, pval.name, pval.tos, strings.Join(pmap.TargetSlice(), " "))
 
-  // exec.Command() uses LookPath internally to look up fping binary path
-  cmd := exec.Command("fping", fpargs...)
+  // Run FPing -C for one sequence (polling cycle)
+  // batch all the results received from PingParser()
+  // and send the batch to InfluxDB with WritePoints()
+  for {
+    // exec.Command() uses LookPath internally to look up fping binary path
+    cmd := exec.Command("fping", fpargs...)
 
-  // stdout, err := cmd.StdoutPipe()
-  // fatalErr(err)
+    stderr, err := cmd.StdoutPipe()
+    fatalErr(err)
 
-  stderr, err := cmd.StderrPipe()
-  fatalErr(err)
+    // Run FPing process
+    err = cmd.Start()
+    fatalErr(err)
 
-  err = cmd.Start()
-  fatalErr(err)
+    pingresults := make([]pingresult, 0)
 
-  // fping echoes all results to stderr
-  buff := bufio.NewScanner(stderr)
-
-  // Listen for FPing echo events
-  for buff.Scan() {
-    // Only ever act if result is valid
-    // Timestamp lines will always come back with result.valid set to false
-    if result := PingParser(buff.Text()); result.valid {
-
-      result.probename = pval.name
-      result.probeset = pset
-      result.target = pmap.TargetStringMapRev()[result.host]
-
-      WritePoints(dbclient, result, dchan)
-
+    // fmt.Println("waiting.")
+    // Wait for output from FPing
+    // Compile a slice of pingresults returned by PingParser
+    buff := bufio.NewScanner(stderr)
+    for buff.Scan() {
       if viper.GetBool("debug") {
-        if result.up {
-          dchan <- fmt.Sprintf("%s - %s [%s] loss: %d%%, min: %.2f, avg: %.2f, max: %.2f", result.probeset, result.target, result.host, result.losspct, result.min, result.avg, result.max)
-        } else {
-          dchan <- fmt.Sprintf("[%s] is down", result.host)
+        fmt.Println(buff.Text())
+      }
+
+      // PingParser() returns err when FPing says "address not found"
+      if result, err := PingParser(buff.Text()); err == nil {
+
+        // Fill in missing data from FPing output to pass to InfluxDB as tags
+        result.probename = pval.name
+        result.probeset = pset
+        result.target = pmap.TargetStringMapRev()[result.host]
+
+        pingresults = append(pingresults, result)
+
+        if viper.GetBool("debug") {
+          if result.up {
+            dchan <- fmt.Sprintf("%s - %s [%s] loss: %d%%, min: %.2f, avg: %.2f, max: %.2f", result.probeset, result.target, result.host, result.losspct, result.min, result.avg, result.max)
+          } else {
+            dchan <- fmt.Sprintf("[%s] is down", result.host)
+          }
         }
+      } else if err != nil {
+        // FPing returns with "address not found"
+        logErr(err)
       }
     }
+
+    cmd.Wait()
+
+    if len(pingresults) > 0 {
+      go WritePoints(dbclient, pingresults, dchan)
+    } else {
+      // TODO: Implement incremental backoff for workers that yield nothing
+    }
+
+    // TODO: Wait for at least <interval>ms before starting the next round
+
   }
 }
 
 // Parse FPing output line by line and return a pingresult
 // Example:
-// [15:51:41]
-// (    0     1       2       3    4         5      6        7     )
-// google.com : xmt/rcv/%loss = 1/1/0%, min/avg/max = 10.6/10.6/10.6
-// test.com   : xmt/rcv/%loss = 1/0/100%
-func PingParser(text string) pingresult {
+// $ fping -C 2 -u blah.test 10.1.1.1 8.8.8.8 google.com
+// blah.test address not found
+// 10.1.1.1   : 0.24 0.28
+// 8.8.8.8    : 30.31 29.13
+// google.com : 10.51 12.89
+func PingParser(text string) (pingresult, error) {
 
-  result := pingresult{valid: false, up: false}
+  result := pingresult{up: false}
 
   // Make sure hostname can be resolved
   if strings.ContainsAny(text, "address not found") {
-    return result
+    return result, errors.New(text)
   }
 
   // Returns a slice of strings, split over whitespace as defined in unicode.isSpace
@@ -115,7 +140,6 @@ func PingParser(text string) pingresult {
 
   // Timestamp is echoed on a separate line once every polling cycle -Q
   // Only run the parser on lines that contain more than one field
-  // result.valid will remain false and will not be inserted into tsdb
   if len(fields) > 1 {
 
     result.host = fields[0]
@@ -135,8 +159,7 @@ func PingParser(text string) pingresult {
     losspct, err := strconv.Atoi(lossData[2])
     fatalErr(err)
 
-    // 'valid' means okay for insertion into tsdb
-    result.sent, result.recv, result.losspct, result.valid = sent, recv, losspct, true
+    result.sent, result.recv, result.losspct = sent, recv, losspct
 
     // Result has exactly 8 fields if host is up
     if len(fields) == 8 {
@@ -155,37 +178,12 @@ func PingParser(text string) pingresult {
     }
   }
 
-  return result
+  return result, nil
 }
 
-func WritePoints(dbclient client.Client, point pingresult, dchan chan<- string) {
+func WritePoints(dbclient client.Client, points []pingresult, dchan chan<- string) {
   measurement := viper.GetString("influxdb.measurement")
   hostname, _ := os.Hostname()
-
-  fields := map[string]interface{}{
-    "losspct": point.losspct,
-  }
-
-  tags := map[string]string{
-    "src_host":    hostname,
-    "target_host": point.host,
-    "target_name": point.target,
-  }
-
-  // min, max, avg only given when point.up == true
-  if point.up {
-    fields["min"] = point.min
-    fields["avg"] = point.avg
-    fields["max"] = point.max
-  }
-
-  if point.probename != "" {
-    tags["probe"] = point.probename
-  }
-
-  if point.probeset != "" {
-    tags["probe_set"] = point.probeset
-  }
 
   // Create new point batch
   batch, _ := client.NewBatchPoints(client.BatchPointsConfig{
@@ -193,16 +191,43 @@ func WritePoints(dbclient client.Client, point pingresult, dchan chan<- string) 
     Precision: "ns",
   })
 
-  // Create point and add to batch
-  influxpt, err := client.NewPoint(measurement, tags, fields, time.Now())
+  for _, point := range points {
+    fields := map[string]interface{}{
+      "losspct": point.losspct,
+    }
 
-  if err != nil {
-    dchan <- err.Error()
+    tags := map[string]string{
+      "src_host":    hostname,
+      "target_host": point.host,
+      "target_name": point.target,
+    }
+
+    // min, max, avg only given when point.up == true
+    if point.up {
+      fields["min"] = point.min
+      fields["avg"] = point.avg
+      fields["max"] = point.max
+    }
+
+    if point.probename != "" {
+      tags["probe"] = point.probename
+    }
+
+    if point.probeset != "" {
+      tags["probe_set"] = point.probeset
+    }
+
+    // Create point and add to batch
+    influxpt, err := client.NewPoint(measurement, tags, fields, time.Now())
+
+    if err != nil {
+      dchan <- err.Error()
+    }
+
+    batch.AddPoint(influxpt)
   }
 
-  batch.AddPoint(influxpt)
-
-  err = dbclient.Write(batch)
+  err := dbclient.Write(batch)
 
   fatalErr(err)
 }

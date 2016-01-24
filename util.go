@@ -33,7 +33,7 @@ type pingresult struct {
   host, probename, probeset, target string
   sent, recv, losspct               int
   min, max, avg                     float64
-  valid, up                         bool
+  up                                bool
 }
 
 // Get a Stringmap of strings for reverse lookups, eg.:
@@ -72,10 +72,18 @@ func (pmap probemap) DumpTargets() {
 }
 
 // Wrapper around log.Fatal(err)
-// No-ops is err is nil
+// No-ops if err is nil
 func fatalErr(err error) {
   if err != nil {
     log.Fatal(err)
+  }
+}
+
+// Wrapper around log.Println(err)
+// No-ops if err is nil
+func logErr(err error) {
+  if err != nil {
+    log.Println(err.Error())
   }
 }
 
