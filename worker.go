@@ -15,6 +15,7 @@ import (
   "fmt"
   "github.com/influxdata/influxdb/client/v2"
   "github.com/spf13/viper"
+  "math/rand"
   "os"
   "os/exec"
   "strconv"
@@ -34,7 +35,7 @@ func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan cha
       // Only start workers for probes that have at least one target
       if len(pmap.targets) > 0 {
         // Stagger workers to avoid hitting rate limits when pinging
-        time.Sleep(time.Duration(33) * time.Millisecond)
+        time.Sleep(time.Duration(rand.Intn(viper.GetInt("interval"))) * time.Millisecond)
         go PingWorker(pmap, pset, pval, dbclient, dchan)
       }
     }
@@ -47,7 +48,7 @@ func RunWorkers(probesets map[string]probemap, dbclient client.Client, dchan cha
 // - the feedback channel used for debugging
 // Calls PingParser on every FPing event and sends the result to WritePoints
 func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, dchan chan<- string) {
-  fpparams := []string{"-B 1", "-D", "-r 1", "-i 10", "-e", "-u", "-q"}
+  fpparams := []string{"-B 1", "-D", "-r 1", "-i 25", "-e", "-u", "-q"}
 
   // Build FPing Parameters
   fpargs := append(fpparams, "-O", strconv.Itoa(pval.tos))
