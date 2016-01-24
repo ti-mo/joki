@@ -145,15 +145,14 @@ func PingParser(text string) (pingresult, error) {
   result := pingresult{up: false}
 
   // Make sure hostname can be resolved
-  if strings.ContainsAny(text, "address not found") {
+  if strings.Contains(text, "address not found") {
     return result, errors.New(text)
   }
 
   // Returns a slice of strings, split over whitespace as defined in unicode.isSpace
   fields := strings.Fields(text)
 
-  // Timestamp is echoed on a separate line once every polling cycle -Q
-  // Only run the parser on lines that contain more than one field
+  // Ignore empty lines
   if len(fields) > 1 {
 
     result.host = fields[0]
