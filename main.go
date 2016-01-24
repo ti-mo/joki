@@ -36,8 +36,8 @@ func main() {
   // Configuration Defaults
   // Nested configuration is blocked by spf13/viper issue #71
   viper.SetDefault("debug", false)
-  viper.SetDefault("rate", 1000)
-  viper.SetDefault("interval", 10)
+  viper.SetDefault("interval", 1000)
+  viper.SetDefault("cycle", 10)
 
   err = viper.ReadInConfig()
 
