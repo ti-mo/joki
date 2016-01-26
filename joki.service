@@ -1,0 +1,10 @@
+[Unit]
+Description=Joki - a lightweight latency tracker for InfluxDB
+Wants=network.target
+
+[Service]
+Restart=always
+ExecStart=/usr/bin/joki
+
+[Install]
+WantedBy=multi-user.target
