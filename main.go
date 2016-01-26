@@ -32,6 +32,8 @@ func main() {
   // Viper metaconfiguration
   viper.SetConfigName("config")
   viper.AddConfigPath(pwd)
+  viper.AddConfigPath("/etc/joki/")
+  viper.AddConfigPath("$HOME/.joki/")
 
   // Configuration Defaults
   // Nested configuration is blocked by spf13/viper issue #71
