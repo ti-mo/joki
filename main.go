@@ -3,7 +3,7 @@
 // Use of this source code is governed by an MIT-style
 // license that can be found in the LICENSE file.
 
-// GoPing is a simple SmokePing substitute that supports
+// Joki is a simple SmokePing substitute that supports
 // setting ToS (DSCP) values, pings multiple targets and
 // sends all values to InfluxDB.
 
@@ -45,7 +45,7 @@ func main() {
   if err != nil {
     log.Fatal("Error loading configuration - exiting.")
   } else {
-    fmt.Println("GoPing configuration successfully loaded.")
+    fmt.Println("Joki configuration successfully loaded.")
   }
 
   // Make HTTP client for InfluxDB

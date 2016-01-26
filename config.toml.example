@@ -1,11 +1,16 @@
-# GoPing
+# Joki
+# Ping daemon configuration
+
 debug = false
-rate = 500
+# Time between probes of the same TOS value sent to one host
+rate = 1000
+# Send 10 packets to all targets assigned to a probe group
+# and send calculated values to InfluxDB, correlates with 'rate'
 interval = 10
 
 [influxdb]
-measurement = "goping"
-db = "ping"
+measurement = "ping"
+db = "joki"
 host = "10.1.1.1"
 port = "8090"
 user = "ping"
