@@ -82,7 +82,7 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
     // Compile a slice of pingresults returned by PingParser
     buff := bufio.NewScanner(stderr)
     for buff.Scan() {
-      // PingParser() returns err when FPing says "address not found"
+      // PingParser() returns err upon a parsing error
       if result, err := PingParser(buff.Text()); err == nil {
 
         // Reset backoff factor on successful parse
@@ -97,18 +97,21 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
 
         if viper.GetBool("debug") {
           if result.up {
-            dchan <- fmt.Sprintf("%s - %s [%s] loss: %d%%, min: %.2f, avg: %.2f, max: %.2f", result.probeset, result.target, result.host, result.losspct, result.min, result.avg, result.max)
+            dchan <- fmt.Sprintf("%s - %s [%s] loss: %d%%, min: %.2f, avg: %.2f, max: %.2f",
+             result.probeset, result.target, result.host, result.losspct,
+             result.min, result.avg, result.max)
           } else {
-            dchan <- fmt.Sprintf("[%s] is down", result.host)
+            dchan <- fmt.Sprintf("[%s] is down", pval.name)
+            dchan <- fmt.Sprintf("on thread %v", fpargs)
           }
         }
       } else if err != nil {
-        // FPing returns with "address not found"
-        logErr(errors.New(fmt.Sprintf("%s - %s", pval.name, err.Error())))
+        logErr(errors.New(fmt.Sprintf("%s - %s - %s", pset, pval.name, err.Error())))
       }
     }
 
-    cmd.Wait()
+    err = cmd.Wait()
+    logErr(err)
 
     // Wait for at least <interval>ms before starting the next cycle
     timer := time.NewTimer(time.Millisecond * time.Duration(viper.GetInt("interval")))
@@ -122,7 +125,8 @@ func PingWorker(pmap probemap, pset string, pval probe, dbclient client.Client, 
         backoff++
       }
       timer = time.NewTimer(time.Minute * time.Duration(backoff))
-      logErr(errors.New(fmt.Sprintf("Worker %s yielded no results, sleeping for %d minute(s)", pval.name, backoff)))
+      logErr(errors.New(fmt.Sprintf("Worker %s - %s  yielded no results, sleeping for %d minute(s)",
+        pset, pval.name, backoff)))
     }
 
     <-timer.C
