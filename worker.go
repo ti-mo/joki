@@ -141,11 +141,6 @@ func PingParser(text string) (pingresult, error) {
 
   result := pingresult{up: false}
 
-  // Make sure hostname can be resolved
-  if strings.Contains(text, "address not found") {
-    return result, errors.New(text)
-  }
-
   // Returns a slice of strings, split over whitespace as defined in unicode.isSpace
   fields := strings.Fields(text)
 
@@ -183,6 +178,8 @@ func PingParser(text string) (pingresult, error) {
     } else {
       result.losspct = 100
     }
+  } else {
+    return result, errors.New(fmt.Sprintf("Error parsing FPing output: %s", text))
   }
 
   return result, nil
