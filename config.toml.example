@@ -2,11 +2,14 @@
 # Ping daemon configuration
 
 debug = false
-# Time between probes of the same TOS value sent to one host
-rate = 1000
-# Send 10 packets to all targets assigned to a probe group
-# and send calculated values to InfluxDB, correlates with 'rate'
-interval = 10
+
+# Time between probes of the same TOS value sent to one host (FPing -p param)
+# Default: 1000
+interval = 1000
+
+# Amount of pings per cycle
+# Default: 10
+cycle = 10
 
 [influxdb]
 measurement = "ping"
