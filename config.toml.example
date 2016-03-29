@@ -4,6 +4,7 @@
 debug = false
 
 # Time between probes of the same TOS value sent to one host (FPing -p param)
+# Value is in milliseconds.
 # Default: 1000
 interval = 1000
 
