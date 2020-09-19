@@ -10,62 +10,62 @@
 package main
 
 import (
-  "fmt"
-  "github.com/influxdata/influxdb/client/v2"
-  "github.com/spf13/viper"
-  "log"
-  "os"
-  "os/exec"
+	"fmt"
+	"github.com/influxdata/influxdb/client/v2"
+	"github.com/spf13/viper"
+	"log"
+	"os"
+	"os/exec"
 )
 
 func main() {
 
-  if _, err := exec.LookPath("fping"); err != nil {
-    log.Fatal("FPing binary not found. Exiting.")
-  }
+	if _, err := exec.LookPath("fping"); err != nil {
+		log.Fatal("FPing binary not found. Exiting.")
+	}
 
-  pwd, err := os.Getwd()
-  if err != nil {
-    log.Fatal(err)
-  }
+	pwd, err := os.Getwd()
+	if err != nil {
+		log.Fatal(err)
+	}
 
-  // Viper metaconfiguration
-  viper.SetConfigName("config")
-  viper.AddConfigPath(pwd)
-  viper.AddConfigPath("/etc/joki/")
-  viper.AddConfigPath("$HOME/.joki/")
+	// Viper metaconfiguration
+	viper.SetConfigName("config")
+	viper.AddConfigPath(pwd)
+	viper.AddConfigPath("/etc/joki/")
+	viper.AddConfigPath("$HOME/.joki/")
 
-  // Configuration Defaults
-  // Nested configuration is blocked by spf13/viper issue #71
-  viper.SetDefault("debug", false)
-  viper.SetDefault("interval", 1000)
-  viper.SetDefault("cycle", 10)
+	// Configuration Defaults
+	// Nested configuration is blocked by spf13/viper issue #71
+	viper.SetDefault("debug", false)
+	viper.SetDefault("interval", 1000)
+	viper.SetDefault("cycle", 10)
 
-  err = viper.ReadInConfig()
+	err = viper.ReadInConfig()
 
-  // TODO: extend this with more targeted info, like config search path etc.
-  if err != nil {
-    log.Fatal("Error loading configuration - exiting.")
-  } else {
-    fmt.Println("Joki configuration successfully loaded.")
-  }
+	// TODO: extend this with more targeted info, like config search path etc.
+	if err != nil {
+		log.Fatal("Error loading configuration - exiting.")
+	} else {
+		fmt.Println("Joki configuration successfully loaded.")
+	}
 
-  // Make HTTP client for InfluxDB
-  dbclient, err := client.NewUDPClient(client.UDPConfig{
-    Addr: fmt.Sprintf("%s:%d", viper.GetString("influxdb.host"), viper.GetInt("influxdb.port")),
-  })
-  if err != nil {
-    fmt.Println("Error creating InfluxDB Client: ", err.Error())
-  }
-  defer dbclient.Close()
+	// Make HTTP client for InfluxDB
+	dbclient, err := client.NewUDPClient(client.UDPConfig{
+		Addr: fmt.Sprintf("%s:%d", viper.GetString("influxdb.host"), viper.GetInt("influxdb.port")),
+	})
+	if err != nil {
+		fmt.Println("Error creating InfluxDB Client: ", err.Error())
+	}
+	defer dbclient.Close()
 
-  probesets := make(map[string]probemap)
-  ReadConfig(&probesets)
+	probesets := make(map[string]probemap)
+	ReadConfig(&probesets)
 
-  dchan := make(chan string)
-  RunWorkers(probesets, dbclient, dchan)
+	dchan := make(chan string)
+	RunWorkers(probesets, dbclient, dchan)
 
-  for {
-    fmt.Println(<-dchan)
-  }
+	for {
+		fmt.Println(<-dchan)
+	}
 }

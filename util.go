@@ -10,30 +10,30 @@
 package main
 
 import (
-  "fmt"
-  "log"
+	"fmt"
+	"log"
 )
 
 type target struct {
-  name, longname, address string
+	name, longname, address string
 }
 
 type probe struct {
-  name string
-  tos  int
+	name string
+	tos  int
 }
 
 type probemap struct {
-  name    string
-  probes  map[string]probe
-  targets map[string]target
+	name    string
+	probes  map[string]probe
+	targets map[string]target
 }
 
 type pingresult struct {
-  host, probename, probeset, target string
-  sent, recv, losspct               int
-  min, max, avg                     float64
-  up                                bool
+	host, probename, probeset, target string
+	sent, recv, losspct               int
+	min, max, avg                     float64
+	up                                bool
 }
 
 // Get a Stringmap of strings for reverse lookups, eg.:
@@ -41,53 +41,53 @@ type pingresult struct {
 // This is useful to translate back to a name when parsing output
 // for logging purposes after the argument has been handed off to FPing
 func (probeMap probemap) TargetStringMapRev() map[string]string {
-  targetMap := make(map[string]string)
+	targetMap := make(map[string]string)
 
-  for targetid, targetval := range probeMap.targets {
-    targetMap[targetval.address] = targetid
-  }
+	for targetid, targetval := range probeMap.targets {
+		targetMap[targetval.address] = targetid
+	}
 
-  return targetMap
+	return targetMap
 }
 
 // Returns a slice of strings containing all targets
 // Used for generating arguments for the ping worker
 func (probeMap probemap) TargetSlice() []string {
 
-  targets := make([]string, 0, len(probeMap.targets))
+	targets := make([]string, 0, len(probeMap.targets))
 
-  for _, probeTarget := range probeMap.targets {
-    targets = append(targets, probeTarget.address)
-  }
+	for _, probeTarget := range probeMap.targets {
+		targets = append(targets, probeTarget.address)
+	}
 
-  return targets
+	return targets
 }
 
 // Given a probemap, dumps a list of its targets
-func (pmap probemap) DumpTargets() {
-  for name, target := range pmap.targets {
-    fmt.Printf("\n[target] %s\n\tLong Name: %s\n\tAddress: %s\n",
-      name, target.longname, target.address)
-  }
+func (probeMap probemap) DumpTargets() {
+	for name, target := range probeMap.targets {
+		fmt.Printf("\n[target] %s\n\tLong Name: %s\n\tAddress: %s\n",
+			name, target.longname, target.address)
+	}
 }
 
 // Wrapper around log.Fatal(err)
 // No-ops if err is nil
 func fatalErr(err error) {
-  if err != nil {
-    log.Fatal(err)
-  }
+	if err != nil {
+		log.Fatal(err)
+	}
 }
 
 // Wrapper around log.Println(err)
 // No-ops if err is nil
 func logErr(err error) {
-  if err != nil {
-    log.Println(err.Error())
-  }
+	if err != nil {
+		log.Println(err.Error())
+	}
 }
 
 // Splitter function that determines if input rune is slash
 func isSlash(c rune) bool {
-  return c == '/'
+	return c == '/'
 }
